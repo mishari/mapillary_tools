@@ -8,7 +8,12 @@ import uuid
 import exifread
 import time
 
-from upload import create_dirs, UploadThread, upload_file
+try:
+    from upload import create_dirs, UploadThread, upload_file
+except ImportError:
+    print("To run this script you need upload.py in your PYTHONPATH or the same folder.")
+    sys.exit()
+
 
 '''
 Script for uploading images taken with other cameras than
@@ -34,18 +39,20 @@ USE UPLOAD.PY INSTEAD.
 '''
 
 
-MAPILLARY_UPLOAD_URL = "http://mapillary.uploads.manual.images.s3-eu-west-1.amazonaws.com"
-NUMBER_THREADS = 4
+MAPILLARY_UPLOAD_URL = "https://s3-eu-west-1.amazonaws.com/mapillary.uploads.manual.images"
+NUMBER_THREADS = int(os.getenv('NUMBER_THREADS', '4'))
+MOVE_FILES = False
 
 
 def upload_done_file(params):
     print("Upload a DONE file to tell the backend that the sequence is all uploaded and ready to submit.")
-    if not os.path.exists('DONE'):
+    if not os.path.exists("DONE"):
         open("DONE", 'a').close()
     #upload
     upload_file("DONE", **params)
     #remove
-    os.remove("DONE")
+    if os.path.exists("DONE"):
+        os.remove("DONE")
 
 
 def verify_exif(filename):
@@ -55,7 +62,10 @@ def verify_exif(filename):
     Incompatible files will be ignored server side.
     '''
     # required tags in IFD name convention
-    required_exif = [["GPS GPSLongitude"], ["GPS GPSLatitude"], ["EXIF DateTimeOriginal","EXIF DateTimeDigitized","Image DateTime","GPS GPSDate"], ["Image Orientation"]]
+    required_exif = [ ["GPS GPSLongitude", "EXIF GPS GPSLongitude"],
+                      ["GPS GPSLatitude", "EXIF GPS GPSLatitude"],
+                      ["EXIF DateTimeOriginal", "EXIF DateTimeDigitized", "Image DateTime", "GPS GPSDate", "EXIF GPS GPSDate"],
+                      ["Image Orientation"]]
     description_tag = "Image ImageDescription"
 
     with open(filename, 'rb') as f:
@@ -92,8 +102,11 @@ if __name__ == '__main__':
     You also need upload.py in the same folder or in your PYTHONPATH since this
     script uses pieces of that.
     '''
+    if sys.version_info >= (3, 0):
+        raise IOError("Incompatible Python version. This script requires Python 2.x, you are using {0}.".format(sys.version_info[:2]))
 
-    if len(sys.argv) > 2:
+
+    if len(sys.argv) < 2:
         print("Usage: python upload_with_authentication.py path")
         raise IOError("Bad input parameters.")
     path = sys.argv[1]
@@ -109,6 +122,7 @@ if __name__ == '__main__':
         file_list = []
         for root, sub_folders, files in os.walk(path):
             file_list += [os.path.join(root, filename) for filename in files if filename.lower().endswith(".jpg")]
+        print "found %d images for upload" % (len(file_list))
 
     # get env variables
     try:
@@ -129,7 +143,7 @@ if __name__ == '__main__':
     # set upload parameters
     params = {"url": MAPILLARY_UPLOAD_URL, "key": s3_bucket,
             "permission": MAPILLARY_PERMISSION_HASH, "signature": MAPILLARY_SIGNATURE_HASH,
-            "move_files":False}
+            "move_files": MOVE_FILES}
 
     # create upload queue with all files
     q = Queue()
